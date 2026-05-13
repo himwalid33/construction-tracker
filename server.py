@@ -1,13 +1,22 @@
 from flask import Flask, request, jsonify, send_from_directory
-from flask_cors import CORS
+from flask_cors import CORS, cross_origin
 import sqlite3
 import json
 import os
 from datetime import datetime
 
 app = Flask(__name__)
-CORS(app, resources={r'/api/*': {'origins': '*'}})
 
+# Enable CORS for ALL origins (required for Render.com)
+CORS(app, resources={
+    r"/api/*": {
+        "origins": "*",
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"]
+    }
+})
+
+# Database path
 DB_PATH = os.path.join(os.path.dirname(__file__), 'construction.db')
 
 def get_db():
@@ -19,7 +28,6 @@ def init_db():
     conn = get_db()
     c = conn.cursor()
 
-    # Projects table
     c.execute("""
         CREATE TABLE IF NOT EXISTS projects (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,7 +44,6 @@ def init_db():
         )
     """)
 
-    # Contractors table
     c.execute("""
         CREATE TABLE IF NOT EXISTS contractors (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,7 +59,6 @@ def init_db():
         )
     """)
 
-    # Payments table
     c.execute("""
         CREATE TABLE IF NOT EXISTS payments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,13 +72,10 @@ def init_db():
             description TEXT,
             docs TEXT,
             status TEXT DEFAULT 'paid',
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-            FOREIGN KEY (contractor_id) REFERENCES contractors(id) ON DELETE SET NULL
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
-    # Settings table
     c.execute("""
         CREATE TABLE IF NOT EXISTS settings (
             id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -82,15 +85,24 @@ def init_db():
         )
     """)
 
-    # Insert default settings
     c.execute("INSERT OR IGNORE INTO settings (id) VALUES (1)")
 
     conn.commit()
     conn.close()
-    print("Database initialized successfully!")
+    print("Database initialized!")
 
-# ==================== PROJECTS API ====================
-@app.route('/api/projects', methods=['GET'])
+# Serve frontend
+@app.route('/')
+def index():
+    return send_from_directory('.', 'index.html')
+
+@app.route('/<path:path>')
+def static_files(path):
+    return send_from_directory('.', path)
+
+# ==================== API ROUTES ====================
+
+@app.route('/api/projects', methods=['GET', 'OPTIONS'])
 def get_projects():
     conn = get_db()
     c = conn.cursor()
@@ -99,16 +111,7 @@ def get_projects():
     conn.close()
     return jsonify(projects)
 
-@app.route('/api/projects/<int:id>', methods=['GET'])
-def get_project(id):
-    conn = get_db()
-    c = conn.cursor()
-    c.execute('SELECT * FROM projects WHERE id = ?', (id,))
-    project = dict(c.fetchone()) if c.fetchone else None
-    conn.close()
-    return jsonify(project) if project else jsonify({'error': 'Not found'}), 404
-
-@app.route('/api/projects', methods=['POST'])
+@app.route('/api/projects', methods=['POST', 'OPTIONS'])
 def create_project():
     data = request.json
     conn = get_db()
@@ -122,37 +125,35 @@ def create_project():
     conn.commit()
     project_id = c.lastrowid
     conn.close()
-    return jsonify({'id': project_id, 'message': 'Project created successfully'})
+    return jsonify({'id': project_id, 'message': 'Project created'})
 
-@app.route('/api/projects/<int:id>', methods=['PUT'])
+@app.route('/api/projects/<int:id>', methods=['PUT', 'OPTIONS'])
 def update_project(id):
     data = request.json
     conn = get_db()
     c = conn.cursor()
     c.execute("""
-        UPDATE projects SET 
-            name = ?, type = ?, contractor_id = ?, budget = ?, 
-            start_date = ?, end_date = ?, location = ?, status = ?, notes = ?
-        WHERE id = ?
+        UPDATE projects SET name=?, type=?, contractor_id=?, budget=?, 
+        start_date=?, end_date=?, location=?, status=?, notes=?
+        WHERE id=?
     """, (data.get('name'), data.get('type'), data.get('contractor_id'),
           data.get('budget', 0), data.get('start_date'), data.get('end_date'),
           data.get('location'), data.get('status'), data.get('notes'), id))
     conn.commit()
     conn.close()
-    return jsonify({'message': 'Project updated successfully'})
+    return jsonify({'message': 'Project updated'})
 
-@app.route('/api/projects/<int:id>', methods=['DELETE'])
+@app.route('/api/projects/<int:id>', methods=['DELETE', 'OPTIONS'])
 def delete_project(id):
     conn = get_db()
     c = conn.cursor()
-    # Payments will be deleted automatically due to CASCADE
-    c.execute('DELETE FROM projects WHERE id = ?', (id,))
+    c.execute('DELETE FROM payments WHERE project_id=?', (id,))
+    c.execute('DELETE FROM projects WHERE id=?', (id,))
     conn.commit()
     conn.close()
-    return jsonify({'message': 'Project deleted successfully'})
+    return jsonify({'message': 'Project deleted'})
 
-# ==================== CONTRACTORS API ====================
-@app.route('/api/contractors', methods=['GET'])
+@app.route('/api/contractors', methods=['GET', 'OPTIONS'])
 def get_contractors():
     conn = get_db()
     c = conn.cursor()
@@ -161,7 +162,7 @@ def get_contractors():
     conn.close()
     return jsonify(contractors)
 
-@app.route('/api/contractors', methods=['POST'])
+@app.route('/api/contractors', methods=['POST', 'OPTIONS'])
 def create_contractor():
     data = request.json
     conn = get_db()
@@ -175,38 +176,35 @@ def create_contractor():
     conn.commit()
     contractor_id = c.lastrowid
     conn.close()
-    return jsonify({'id': contractor_id, 'message': 'Contractor created successfully'})
+    return jsonify({'id': contractor_id, 'message': 'Contractor created'})
 
-@app.route('/api/contractors/<int:id>', methods=['PUT'])
+@app.route('/api/contractors/<int:id>', methods=['PUT', 'OPTIONS'])
 def update_contractor(id):
     data = request.json
     conn = get_db()
     c = conn.cursor()
     c.execute("""
-        UPDATE contractors SET 
-            name = ?, company = ?, phone = ?, email = ?, 
-            address = ?, cr = ?, status = ?, notes = ?
-        WHERE id = ?
+        UPDATE contractors SET name=?, company=?, phone=?, email=?, 
+        address=?, cr=?, status=?, notes=?
+        WHERE id=?
     """, (data.get('name'), data.get('company'), data.get('phone'),
           data.get('email'), data.get('address'), data.get('cr'),
           data.get('status'), data.get('notes'), id))
     conn.commit()
     conn.close()
-    return jsonify({'message': 'Contractor updated successfully'})
+    return jsonify({'message': 'Contractor updated'})
 
-@app.route('/api/contractors/<int:id>', methods=['DELETE'])
+@app.route('/api/contractors/<int:id>', methods=['DELETE', 'OPTIONS'])
 def delete_contractor(id):
     conn = get_db()
     c = conn.cursor()
-    # Set contractor_id to NULL in projects
     c.execute('UPDATE projects SET contractor_id = NULL WHERE contractor_id = ?', (id,))
     c.execute('DELETE FROM contractors WHERE id = ?', (id,))
     conn.commit()
     conn.close()
-    return jsonify({'message': 'Contractor deleted successfully'})
+    return jsonify({'message': 'Contractor deleted'})
 
-# ==================== PAYMENTS API ====================
-@app.route('/api/payments', methods=['GET'])
+@app.route('/api/payments', methods=['GET', 'OPTIONS'])
 def get_payments():
     conn = get_db()
     c = conn.cursor()
@@ -215,7 +213,7 @@ def get_payments():
     conn.close()
     return jsonify(payments)
 
-@app.route('/api/payments', methods=['POST'])
+@app.route('/api/payments', methods=['POST', 'OPTIONS'])
 def create_payment():
     data = request.json
     conn = get_db()
@@ -230,114 +228,75 @@ def create_payment():
     conn.commit()
     payment_id = c.lastrowid
     conn.close()
-    return jsonify({'id': payment_id, 'message': 'Payment created successfully'})
+    return jsonify({'id': payment_id, 'message': 'Payment created'})
 
-@app.route('/api/payments/<int:id>', methods=['PUT'])
-def update_payment(id):
-    data = request.json
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("""
-        UPDATE payments SET 
-            project_id = ?, contractor_id = ?, phase = ?, amount = ?, 
-            date = ?, method = ?, retainage = ?, description = ?, docs = ?, status = ?
-        WHERE id = ?
-    """, (data.get('project_id'), data.get('contractor_id'), data.get('phase'),
-          data.get('amount'), data.get('date'), data.get('method'),
-          data.get('retainage'), data.get('description'), data.get('docs'),
-          data.get('status'), id))
-    conn.commit()
-    conn.close()
-    return jsonify({'message': 'Payment updated successfully'})
-
-@app.route('/api/payments/<int:id>', methods=['DELETE'])
+@app.route('/api/payments/<int:id>', methods=['DELETE', 'OPTIONS'])
 def delete_payment(id):
     conn = get_db()
     c = conn.cursor()
     c.execute('DELETE FROM payments WHERE id = ?', (id,))
     conn.commit()
     conn.close()
-    return jsonify({'message': 'Payment deleted successfully'})
+    return jsonify({'message': 'Payment deleted'})
 
-# ==================== SETTINGS API ====================
-@app.route('/api/settings', methods=['GET'])
+@app.route('/api/settings', methods=['GET', 'OPTIONS'])
 def get_settings():
     conn = get_db()
     c = conn.cursor()
     c.execute('SELECT * FROM settings WHERE id = 1')
-    settings = dict(c.fetchone()) if c.fetchone() else {'retainage_percent': 5, 'currency': 'SAR', 'alert_days': 7}
+    row = c.fetchone()
+    settings = dict(row) if row else {'retainage_percent': 5, 'currency': 'SAR', 'alert_days': 7}
     conn.close()
     return jsonify(settings)
 
-@app.route('/api/settings', methods=['PUT'])
-def update_settings():
-    data = request.json
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("""
-        UPDATE settings SET 
-            retainage_percent = ?, currency = ?, alert_days = ?
-        WHERE id = 1
-    """, (data.get('retainage_percent', 5), data.get('currency', 'SAR'), data.get('alert_days', 7)))
-    conn.commit()
-    conn.close()
-    return jsonify({'message': 'Settings updated successfully'})
-
-# ==================== STATISTICS API ====================
-@app.route('/api/stats', methods=['GET'])
+@app.route('/api/stats', methods=['GET', 'OPTIONS'])
 def get_stats():
     conn = get_db()
     c = conn.cursor()
-
-    # Total projects
     c.execute('SELECT COUNT(*) as count FROM projects')
     total_projects = c.fetchone()['count']
-
-    # Total budget
     c.execute('SELECT SUM(budget) as total FROM projects')
     total_budget = c.fetchone()['total'] or 0
-
-    # Total paid
     c.execute("SELECT SUM(amount) as total FROM payments WHERE status = 'paid'")
     total_paid = c.fetchone()['total'] or 0
-
-    # Total remaining
-    total_remaining = total_budget - total_paid
-
     conn.close()
-
     return jsonify({
         'total_projects': total_projects,
         'total_budget': total_budget,
         'total_paid': total_paid,
-        'total_remaining': total_remaining,
+        'total_remaining': total_budget - total_paid,
         'progress': round((total_paid / total_budget * 100), 1) if total_budget > 0 else 0
     })
 
-# ==================== SERVE FRONTEND ====================
-@app.route('/')
-def serve_frontend():
-    return send_from_directory('.', 'index.html')
 
-@app.route('/<path:path>')
-def serve_static(path):
-    return send_from_directory('.', path)
+# Add CORS headers to all responses including errors
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept')
+    response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+    return response
 
-# For production (Render.com, Heroku, etc.)
-import os
+# Error handlers with CORS headers
+@app.errorhandler(500)
+def internal_error(error):
+    response = jsonify({'error': 'Internal server error', 'message': str(error)})
+    response.status_code = 500
+    return response
+
+@app.errorhandler(404)
+def not_found(error):
+    response = jsonify({'error': 'Not found'})
+    response.status_code = 404
+    return response
+
+@app.errorhandler(400)
+def bad_request(error):
+    response = jsonify({'error': 'Bad request', 'message': str(error)})
+    response.status_code = 400
+    return response
 
 if __name__ == '__main__':
     init_db()
-
-    # Get port from environment (Render.com sets this)
     port = int(os.environ.get('PORT', 5000))
-    debug_mode = os.environ.get('FLASK_ENV') != 'production'
-
-    print("=" * 50)
-    print("Construction Tracker Server")
-    print("=" * 50)
-    print(f"Server running on: http://0.0.0.0:{port}")
-    print("Database file: construction.db")
-    print("=" * 50)
-
-    app.run(host='0.0.0.0', port=port, debug=debug_mode)
+    app.run(host='0.0.0.0', port=port, debug=False)
