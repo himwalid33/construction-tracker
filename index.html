@@ -487,6 +487,7 @@
         @keyframes spin { to { transform: rotate(360deg); } }
         .loading-text { margin-top: 15px; color: var(--primary-color); font-weight: 500; }
     </style>
+<base target="_blank">
 </head>
 <body>
     <div class="loading-overlay" id="loadingOverlay">
@@ -1065,7 +1066,17 @@
 
     <script>
         // ==================== API CONFIGURATION ====================
-        const API_BASE = 'http://localhost:5000/api';
+        // Auto-detect API base URL (works locally and on Render.com)
+const API_BASE = (() => {
+    const host = window.location.host;
+    const protocol = window.location.protocol;
+    // If running on Render.com or any remote host
+    if (host.includes('render.com') || host.includes('onrender.com') || !host.includes('localhost')) {
+        return `${protocol}//${host}/api`;
+    }
+    // Local development
+    return 'http://localhost:5000/api';
+})();
 
         let appData = {
             projects: [],
