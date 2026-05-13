@@ -9,3 +9,9 @@ services:
         value: 3.11.0
       - key: FLASK_ENV
         value: production
+      - key: DB_PATH
+        value: /var/www/construction/construction.db
+    disk:
+      name: construction-db
+      mountPath: /var/www/construction
+      sizeGB: 1
